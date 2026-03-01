@@ -36,8 +36,8 @@ async function moveNote(
   const fullDestPath = path.join(vaultPath, args.destination);
 
   // Validate paths are within vault
-  validateVaultPath(vaultPath, fullSourcePath);
-  validateVaultPath(vaultPath, fullDestPath);
+  await validateVaultPath(vaultPath, fullSourcePath);
+  await validateVaultPath(vaultPath, fullDestPath);
 
   try {
     // Check if source exists

@@ -70,7 +70,7 @@ async function addTags(
     
     try {
       // Validate path is within vault
-      validateVaultPath(vaultPath, fullPath);
+      await validateVaultPath(vaultPath, fullPath);
       
       // Check if file exists
       if (!await fileExists(fullPath)) {

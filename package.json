@@ -18,7 +18,7 @@
     "./resources/*": "./build/resources/*.js"
   },
   "peerDependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4"
+    "@modelcontextprotocol/sdk": "^1.27.0"
   },
   "dependencies": {
     "yaml": "^2.6.1",
@@ -26,10 +26,10 @@
     "zod-to-json-schema": "^3.24.1"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "@types/bun": "latest",
     "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
-    "@types/bun": "latest"
+    "typescript": "^5.0.0"
   },
   "scripts": {
     "build": "bun build ./src/main.ts --outdir build --target node && chmod +x build/main.js",
