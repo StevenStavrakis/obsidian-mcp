@@ -93,7 +93,7 @@ async function deleteNote(
   const fullPath = path.join(vaultPath, notePath);
 
   // Validate path is within vault
-  validateVaultPath(vaultPath, fullPath);
+  await validateVaultPath(vaultPath, fullPath);
 
   try {
     // Check if note exists

@@ -50,7 +50,7 @@ async function searchFilenames(
 ): Promise<SearchResult[]> {
   try {
     // Use safeJoinPath for path safety
-    const searchDir = options.path ? safeJoinPath(vaultPath, options.path) : vaultPath;
+    const searchDir = options.path ? await safeJoinPath(vaultPath, options.path) : vaultPath;
     const files = await getAllMarkdownFiles(vaultPath, searchDir);
     const results: SearchResult[] = [];
     const searchQuery = options.caseSensitive ? query : query.toLowerCase();
@@ -84,7 +84,7 @@ async function searchContent(
 ): Promise<SearchResult[]> {
   try {
     // Use safeJoinPath for path safety
-    const searchDir = options.path ? safeJoinPath(vaultPath, options.path) : vaultPath;
+    const searchDir = options.path ? await safeJoinPath(vaultPath, options.path) : vaultPath;
     const files = await getAllMarkdownFiles(vaultPath, searchDir);
     const results: SearchResult[] = [];
     const isTagSearchQuery = isTagSearch(query);
