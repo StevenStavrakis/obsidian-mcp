@@ -76,14 +76,18 @@ export function createSchemaHandler<T>(schema: z.ZodSchema<T>) {
     // Convert to JSON Schema for MCP interface
     jsonSchema: (() => {
       const fullSchema = zodToJsonSchema(schema) as {
-        type: string;
-        properties: Record<string, any>;
+        type?: string;
+        properties?: Record<string, any>;
         required?: string[];
+        anyOf?: any[];
+        oneOf?: any[];
       };
       return {
         type: fullSchema.type || "object",
         properties: fullSchema.properties || {},
-        required: fullSchema.required || []
+        required: fullSchema.required || [],
+        ...(fullSchema.anyOf && { anyOf: fullSchema.anyOf }),
+        ...(fullSchema.oneOf && { oneOf: fullSchema.oneOf })
       };
     })(),
     
