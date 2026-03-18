@@ -69,6 +69,58 @@ export function createSchemaHandlerFromJson<T = any>(jsonSchema: {
 }
 
 /**
+ * Flattens anyOf/oneOf union variants into a single merged object schema.
+ * Required because the Claude API does not support anyOf/oneOf at the top level
+ * of a tool input_schema. Properties are unioned across variants; a property is
+ * marked required only if it appears in every variant's required list.
+ */
+function flattenUnionSchema(variants: any[]): { type: string; properties: Record<string, any>; required: string[] } {
+  const allProperties: Record<string, any> = {};
+  let requiredInAll: Set<string> | null = null;
+
+  for (const variant of variants) {
+    const props: Record<string, any> = variant.properties || {};
+    const required = new Set<string>(variant.required || []);
+
+    for (const [key, value] of Object.entries(props)) {
+      const v = value as any;
+      // Skip impossible/undefined fields (z.undefined() → { not: {} })
+      const isUndefinedType = v.not !== undefined && Object.keys(v.not).length === 0;
+      if (isUndefinedType) continue;
+
+      if (!allProperties[key]) {
+        // First time seeing this property — normalise const → enum for easier merging
+        allProperties[key] = v.const !== undefined ? { type: "string", enum: [v.const], description: v.description } : { ...v };
+      } else {
+        // Merge enum/const values from subsequent variants
+        const existing = allProperties[key];
+        const incomingValues: any[] = v.const !== undefined ? [v.const] : (v.enum ?? []);
+        const existingValues: any[] = existing.enum ?? [];
+        const merged = [...new Set([...existingValues, ...incomingValues])];
+        if (merged.length > 0) {
+          allProperties[key] = { ...existing, enum: merged };
+          delete allProperties[key].const;
+        }
+      }
+    }
+
+    if (requiredInAll === null) {
+      requiredInAll = new Set(required);
+    } else {
+      for (const r of [...requiredInAll]) {
+        if (!required.has(r)) requiredInAll.delete(r);
+      }
+    }
+  }
+
+  return {
+    type: "object",
+    properties: allProperties,
+    required: requiredInAll ? [...requiredInAll] : [],
+  };
+}
+
+/**
  * Creates a tool schema handler that manages both JSON Schema for MCP and Zod validation
  */
 export function createSchemaHandler<T>(schema: z.ZodSchema<T>) {
@@ -82,12 +134,12 @@ export function createSchemaHandler<T>(schema: z.ZodSchema<T>) {
         anyOf?: any[];
         oneOf?: any[];
       };
+      const variants = fullSchema.anyOf || fullSchema.oneOf;
+      const flat = variants ? flattenUnionSchema(variants) : fullSchema;
       return {
-        type: fullSchema.type || "object",
-        properties: fullSchema.properties || {},
-        required: fullSchema.required || [],
-        ...(fullSchema.anyOf && { anyOf: fullSchema.anyOf }),
-        ...(fullSchema.oneOf && { oneOf: fullSchema.oneOf })
+        type: flat.type || "object",
+        properties: (flat as any).properties || {},
+        required: (flat as any).required || [],
       };
     })(),
     
