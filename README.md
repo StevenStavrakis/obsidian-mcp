@@ -21,6 +21,7 @@ This MCP has read and write access (if you allow it). Please. PLEASE backup your
 
 - Node.js 20 or higher (might work on lower, but I haven't tested it)
 - An Obsidian vault
+- Bun (required for local build and test commands)
 
 ## Install
 
@@ -85,6 +86,9 @@ npm install
 
 # Build
 npm run build
+
+# Run tests
+npm test
 ```
 
 Then add to your Claude Desktop configuration:

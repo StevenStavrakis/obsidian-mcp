@@ -34,6 +34,7 @@
   "scripts": {
     "build": "bun build ./src/main.ts --outdir build --target node && chmod +x build/main.js",
     "start": "bun build/main.js",
+    "test": "bun test",
     "prepublishOnly": "npm run build",
     "inspect": "bunx @modelcontextprotocol/inspector bun ./build/main.js"
   },
