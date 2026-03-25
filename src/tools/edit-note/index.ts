@@ -60,8 +60,8 @@ const editSchema = z.object({
     .describe("New content to add/prepend/replace")
 }).strict();
 
-// Combined schema using discriminated union
-const schema = z.discriminatedUnion('operation', [deleteSchema, editSchema]);
+// Combined schema using union
+const schema = z.union([deleteSchema, editSchema]);
 
 // Types
 type EditOperation = 'append' | 'prepend' | 'replace' | 'delete';
