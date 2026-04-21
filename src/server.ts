@@ -99,12 +99,9 @@ export class ObsidianServer {
 
     this.setupHandlers();
 
-    // Setup connection monitoring with grace period for initialization
-    this.connectionMonitor.start(() => {
-      this.server.close();
-    });
-    
-    // Update activity during initialization
+    // Connection monitor tracks activity for diagnostics but does not
+    // close the server. The MCP client manages server lifecycle.
+    this.connectionMonitor.start(() => {});
     this.connectionMonitor.updateActivity();
 
     // Setup error handler

@@ -44,63 +44,32 @@ export function validateMessageSize(message: any): void {
   }
 }
 
-// Connection health monitoring
+// Connection activity tracking (monitoring only, no self-destruct)
 export class ConnectionMonitor {
   private lastActivity: number = Date.now();
-  private healthCheckInterval: NodeJS.Timeout | null = null;
-  private heartbeatInterval: NodeJS.Timeout | null = null;
-  private readonly timeout: number;
-  private readonly gracePeriod: number;
-  private readonly heartbeat: number;
-  private initialized: boolean = false;
-
-  constructor(
-    timeout: number = 300000,
-    gracePeriod: number = 60000,
-    heartbeat: number = 30000
-  ) {
-    // 5min timeout, 1min grace period, 30s heartbeat
-    this.timeout = timeout;
-    this.gracePeriod = gracePeriod;
-    this.heartbeat = heartbeat;
-  }
 
   updateActivity() {
     this.lastActivity = Date.now();
   }
 
-  start(onTimeout: () => void) {
-    // Start monitoring after grace period
-    setTimeout(() => {
-      this.initialized = true;
+  getLastActivity(): number {
+    return this.lastActivity;
+  }
 
-      // Set up heartbeat to keep connection alive
-      this.heartbeatInterval = setInterval(() => {
-        // The heartbeat itself counts as activity
-        this.updateActivity();
-      }, this.heartbeat);
-
-      // Set up health check
-      this.healthCheckInterval = setInterval(() => {
-        const now = Date.now();
-        const inactiveTime = now - this.lastActivity;
-
-        if (inactiveTime > this.timeout) {
-          onTimeout();
-        }
-      }, 10000); // Check every 10 seconds
-    }, this.gracePeriod);
+  start(_onTimeout: () => void) {
+    // No-op: MCP server lifecycle is managed by the client via the
+    // transport layer. The server must not close itself on a timer
+    // because the client has no way to detect a silently-closed
+    // transport vs a hung server, and will wait forever.
+    //
+    // Previous versions (<=1.0.6) called server.close() after 60s of
+    // inactivity measured only by tool calls (not protocol messages
+    // like initialize/initialized). This caused the server to kill
+    // its own stdio transport while the client still held a reference
+    // to the process, making every subsequent tool call hang.
   }
 
   stop() {
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
-      this.healthCheckInterval = null;
-    }
-
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
+    // No timers to clean up
   }
 }
