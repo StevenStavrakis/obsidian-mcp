@@ -397,8 +397,8 @@ export function ensureMarkdownExtension(filePath: string): string {
  * @param targetPath - The target path to validate
  * @throws {McpError} If path is outside vault or invalid
  */
-export function validateVaultPath(vaultPath: string, targetPath: string): void {
-  if (!checkPathSafety(vaultPath, targetPath)) {
+export async function validateVaultPath(vaultPath: string, targetPath: string): Promise<void> {
+  if (!await checkPathSafety(vaultPath, targetPath)) {
     throw new McpError(
       ErrorCode.InvalidRequest,
       `Path must be within the vault directory. Path: ${targetPath}, Vault: ${vaultPath}`
@@ -413,12 +413,12 @@ export function validateVaultPath(vaultPath: string, targetPath: string): void {
  * @returns The joined and validated path
  * @throws {McpError} If resulting path would be outside vault
  */
-export function safeJoinPath(vaultPath: string, ...segments: string[]): string {
+export async function safeJoinPath(vaultPath: string, ...segments: string[]): Promise<string> {
   const joined = path.join(vaultPath, ...segments);
   const resolved = normalizePath(joined);
-  
-  validateVaultPath(vaultPath, resolved);
-  
+
+  await validateVaultPath(vaultPath, resolved);
+
   return resolved;
 }
 

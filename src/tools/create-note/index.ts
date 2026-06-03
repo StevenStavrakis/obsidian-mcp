@@ -41,7 +41,7 @@ async function createNote(
     : path.join(vaultPath, sanitizedFilename);
 
   // Validate path is within vault
-  validateVaultPath(vaultPath, notePath);
+  await validateVaultPath(vaultPath, notePath);
 
   try {
     // Create directory structure if needed

@@ -1,7 +1,9 @@
-import { describe, it } from 'bun:test';
+import { describe, it, beforeAll, afterAll } from 'bun:test';
 import assert from 'node:assert';
+import { promises as fs } from 'fs';
+import os from 'os';
 import path from 'path';
-import { normalizePath } from './path';
+import { normalizePath, validateVaultPath, safeJoinPath } from './path';
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
 describe('normalizePath', () => {
@@ -76,5 +78,52 @@ describe('normalizePath', () => {
     it('should handle paths with colons in filenames', () => {
       assert.strictEqual(normalizePath('/path/to/file:name'), path.resolve('/path/to/file:name'));
     });
+  });
+});
+
+describe('validateVaultPath', () => {
+  let testVault: string;
+
+  beforeAll(async () => {
+    // Resolve symlinks so checkPathSafety's prefix check works on macOS (/tmp -> /private/tmp)
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'obsidian-mcp-test-'));
+    testVault = await fs.realpath(dir);
+  });
+
+  afterAll(async () => {
+    await fs.rm(testVault, { recursive: true, force: true });
+  });
+
+  it('rejects path traversal outside vault', async () => {
+    const traversal = path.resolve(testVault, '../../etc/passwd');
+    await assert.rejects(() => validateVaultPath(testVault, traversal));
+  });
+
+  it('accepts a valid path inside vault', async () => {
+    const valid = path.resolve(testVault, 'note.md');
+    await assert.doesNotReject(() => validateVaultPath(testVault, valid));
+  });
+});
+
+describe('safeJoinPath', () => {
+  let testVault: string;
+
+  beforeAll(async () => {
+    // Resolve symlinks so checkPathSafety's prefix check works on macOS (/tmp -> /private/tmp)
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'obsidian-mcp-test-'));
+    testVault = await fs.realpath(dir);
+  });
+
+  afterAll(async () => {
+    await fs.rm(testVault, { recursive: true, force: true });
+  });
+
+  it('rejects path traversal via relative segments', async () => {
+    await assert.rejects(() => safeJoinPath(testVault, '../../etc'));
+  });
+
+  it('returns the joined path for safe segments', async () => {
+    const result = await safeJoinPath(testVault, 'note.md');
+    assert.strictEqual(result, path.resolve(testVault, 'note.md'));
   });
 });

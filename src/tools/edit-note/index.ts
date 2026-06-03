@@ -79,7 +79,7 @@ async function editNote(
     : path.join(vaultPath, sanitizedFilename);
   
   // Validate path is within vault
-  validateVaultPath(vaultPath, fullPath);
+  await validateVaultPath(vaultPath, fullPath);
 
   // Create unique backup filename
   const timestamp = Date.now();
