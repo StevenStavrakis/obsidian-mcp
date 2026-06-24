@@ -83,7 +83,7 @@ async function editNote(
 
   // Create unique backup filename
   const timestamp = Date.now();
-  const backupPath = `${fullPath}.${timestamp}.backup`;
+  const backupPath = `${fullPath}.${timestamp}.nosync`;
 
   try {
     // For non-delete operations, create backup first
