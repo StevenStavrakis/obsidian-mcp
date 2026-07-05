@@ -10,8 +10,19 @@ import { createToolResponse, formatFileResult } from "../../utils/responses.js";
 import { createTool } from "../../utils/tool-factory.js";
 
 // Input validation schema with descriptions
-// Schema for delete operation
-const deleteSchema = z.object({
+//
+// NOTE: MCP tool input schemas must serialize to a plain JSON Schema *object*
+// (with a top-level `properties` map). A `z.discriminatedUnion(...)` serialises
+// to a top-level `anyOf` with no `properties`, which `createSchemaHandler()`
+// then flattens to `{ type: "object", properties: {}, required: [] }`.
+// Clients that validate/prune arguments against that advertised schema strip
+// *every* argument before the request reaches the server, so edit-note always
+// failed with "Invalid discriminator value. Expected 'delete' | 'append' | ...".
+// A single object schema keeps the arguments intact; the content/delete
+// constraints previously expressed by the discriminated union are enforced with
+// `.superRefine()` (which zod-to-json-schema unwraps under the default
+// `effectStrategy: "input"`, so `properties` is preserved).
+const schema = z.object({
   vault: z.string()
     .min(1, "Vault name cannot be empty")
     .describe("Name of the vault containing the note"),
@@ -25,43 +36,29 @@ const deleteSchema = z.object({
     .refine(folder => !folder || !path.isAbsolute(folder), 
       "Folder must be a relative path")
     .describe("Optional subfolder path relative to vault root"),
-  operation: z.literal('delete')
-    .describe("Delete operation"),
-  content: z.undefined()
-    .describe("Must not provide content for delete operation")
-}).strict();
-
-// Schema for non-delete operations
-const editSchema = z.object({
-  vault: z.string()
-    .min(1, "Vault name cannot be empty")
-    .describe("Name of the vault containing the note"),
-  filename: z.string()
-    .min(1, "Filename cannot be empty")
-    .refine(name => !name.includes('/') && !name.includes('\\'), 
-      "Filename cannot contain path separators - use the 'folder' parameter for paths instead")
-    .describe("Just the note name without any path separators (e.g. 'my-note.md', NOT 'folder/my-note.md')"),
-  folder: z.string()
-    .optional()
-    .refine(folder => !folder || !path.isAbsolute(folder), 
-      "Folder must be a relative path")
-    .describe("Optional subfolder path relative to vault root"),
-  operation: z.enum(['append', 'prepend', 'replace'])
-    .describe("Type of edit operation - must be one of: 'append', 'prepend', 'replace'")
-    .refine(
-      (op) => ['append', 'prepend', 'replace'].includes(op),
-      {
-        message: "Invalid operation. Must be one of: 'append', 'prepend', 'replace'",
-        path: ['operation']
-      }
-    ),
+  operation: z.enum(['append', 'prepend', 'replace', 'delete'])
+    .describe("Type of edit operation - must be one of: 'append', 'prepend', 'replace', 'delete'"),
   content: z.string()
     .min(1, "Content cannot be empty for non-delete operations")
-    .describe("New content to add/prepend/replace")
-}).strict();
-
-// Combined schema using discriminated union
-const schema = z.discriminatedUnion('operation', [deleteSchema, editSchema]);
+    .optional()
+    .describe("New content to add/prepend/replace. Omit for the 'delete' operation.")
+}).strict().superRefine((data, ctx) => {
+  if (data.operation === 'delete') {
+    if (data.content !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Must not provide content for delete operation",
+        path: ['content']
+      });
+    }
+  } else if (data.content === undefined || data.content.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Content is required for append, prepend, and replace operations",
+      path: ['content']
+    });
+  }
+});
 
 // Types
 type EditOperation = 'append' | 'prepend' | 'replace' | 'delete';
