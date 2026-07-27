@@ -2,6 +2,116 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
+const convertToJsonSchema = zodToJsonSchema as unknown as (
+  schema: z.ZodTypeAny
+) => unknown;
+
+type JsonSchema = {
+  type?: string;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  anyOf?: JsonSchema[];
+  oneOf?: JsonSchema[];
+  enum?: unknown[];
+  const?: unknown;
+  not?: JsonSchema;
+  description?: string;
+  minLength?: number;
+};
+
+type McpInputSchema = {
+  type: "object";
+  properties: Record<string, JsonSchema>;
+  required: string[];
+};
+
+function isImpossibleSchema(schema: JsonSchema): boolean {
+  return schema.not !== undefined && Object.keys(schema.not).length === 0;
+}
+
+function mergePropertySchemas(schemas: JsonSchema[]): JsonSchema | undefined {
+  const usableSchemas = schemas.filter(schema => !isImpossibleSchema(schema));
+  const uniqueSchemas = Array.from(
+    new Map(usableSchemas.map(schema => [JSON.stringify(schema), schema])).values()
+  );
+
+  if (uniqueSchemas.length === 0) {
+    return undefined;
+  }
+
+  if (uniqueSchemas.length === 1) {
+    return uniqueSchemas[0];
+  }
+
+  const types = new Set(uniqueSchemas.map(schema => schema.type));
+  const enumValues = uniqueSchemas.flatMap(schema => {
+    if (schema.const !== undefined) {
+      return [schema.const];
+    }
+    return schema.enum || [];
+  });
+
+  const allSchemasHaveEnumeratedValues = uniqueSchemas.every(schema =>
+    schema.const !== undefined || (schema.enum?.length || 0) > 0
+  );
+
+  if (types.size === 1 && !types.has(undefined) && allSchemasHaveEnumeratedValues) {
+    const mergedSchema: JsonSchema = {
+      type: uniqueSchemas[0].type,
+      enum: Array.from(new Set(enumValues))
+    };
+    const descriptions = Array.from(new Set(
+      uniqueSchemas
+        .map(schema => schema.description)
+        .filter((description): description is string => description !== undefined)
+    ));
+    return descriptions.length === 1
+      ? { ...mergedSchema, description: descriptions[0] }
+      : mergedSchema;
+  }
+
+  return { anyOf: uniqueSchemas };
+}
+
+// MCP tool arguments are objects, and some clients prune arguments using only
+// top-level properties. Flatten root object unions for discovery while keeping
+// the original Zod schema below as the authoritative runtime validator.
+function flattenObjectComposition(schema: JsonSchema): McpInputSchema {
+  if (schema.properties) {
+    return {
+      type: "object",
+      properties: schema.properties,
+      required: schema.required || []
+    };
+  }
+
+  const branches = schema.anyOf || schema.oneOf || [];
+  const objectBranches = branches.filter(branch => branch.properties !== undefined);
+  const propertyNames = Array.from(
+    new Set(objectBranches.flatMap(branch => Object.keys(branch.properties || {})))
+  );
+  const required = objectBranches.length === 0
+    ? []
+    : objectBranches
+      .map(branch => new Set(branch.required || []))
+      .reduce((intersection, branchRequired) =>
+        new Set(Array.from(intersection).filter(name => branchRequired.has(name)))
+      );
+
+  return {
+    type: "object",
+    properties: Object.fromEntries(propertyNames.flatMap(name => {
+      const mergedSchema = mergePropertySchemas(
+        objectBranches
+          .map(branch => branch.properties?.[name])
+          .filter((property): property is JsonSchema => property !== undefined)
+      );
+      return mergedSchema ? [[name, mergedSchema]] : [];
+    })),
+    required: Array.from(required)
+  };
+}
+
 /**
  * Converts a JSON Schema object to a Zod schema
  */
@@ -74,18 +184,9 @@ export function createSchemaHandlerFromJson<T = any>(jsonSchema: {
 export function createSchemaHandler<T>(schema: z.ZodSchema<T>) {
   return {
     // Convert to JSON Schema for MCP interface
-    jsonSchema: (() => {
-      const fullSchema = zodToJsonSchema(schema) as {
-        type: string;
-        properties: Record<string, any>;
-        required?: string[];
-      };
-      return {
-        type: fullSchema.type || "object",
-        properties: fullSchema.properties || {},
-        required: fullSchema.required || []
-      };
-    })(),
+    jsonSchema: flattenObjectComposition(
+      convertToJsonSchema(schema as unknown as z.ZodTypeAny) as JsonSchema
+    ),
     
     // Validate and parse input
     parse: (input: unknown): T => {
