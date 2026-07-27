@@ -43,6 +43,13 @@ describe("createSchemaHandler", () => {
       type: "string",
       minLength: 1
     });
+    expect(handler.jsonSchema.anyOf).toHaveLength(2);
+    expect(handler.jsonSchema.anyOf?.[0].properties?.operation).toEqual({
+      type: "string",
+      const: "delete"
+    });
+    expect(handler.jsonSchema.anyOf?.[0].properties?.content).toEqual({ not: {} });
+    expect(handler.jsonSchema.anyOf?.[1].required).toContain("content");
 
     expect(handler.parse({ vault: "notes", filename: "todo.md", operation: "delete" })).toEqual({
       vault: "notes",

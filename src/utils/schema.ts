@@ -23,6 +23,8 @@ type McpInputSchema = {
   type: "object";
   properties: Record<string, JsonSchema>;
   required: string[];
+  anyOf?: JsonSchema[];
+  oneOf?: JsonSchema[];
 };
 
 function isImpossibleSchema(schema: JsonSchema): boolean {
@@ -73,15 +75,21 @@ function mergePropertySchemas(schemas: JsonSchema[]): JsonSchema | undefined {
   return { anyOf: uniqueSchemas };
 }
 
-// MCP tool arguments are objects, and some clients prune arguments using only
-// top-level properties. Flatten root object unions for discovery while keeping
-// the original Zod schema below as the authoritative runtime validator.
+// Some MCP clients prune arguments using only top-level properties. Add that
+// discovery view without dropping the original composition constraints; the
+// original Zod schema below remains the authoritative runtime validator.
 function flattenObjectComposition(schema: JsonSchema): McpInputSchema {
+  const composition = {
+    ...(schema.anyOf ? { anyOf: schema.anyOf } : {}),
+    ...(schema.oneOf ? { oneOf: schema.oneOf } : {})
+  };
+
   if (schema.properties) {
     return {
       type: "object",
       properties: schema.properties,
-      required: schema.required || []
+      required: schema.required || [],
+      ...composition
     };
   }
 
@@ -108,7 +116,8 @@ function flattenObjectComposition(schema: JsonSchema): McpInputSchema {
       );
       return mergedSchema ? [[name, mergedSchema]] : [];
     })),
-    required: Array.from(required)
+    required: Array.from(required),
+    ...composition
   };
 }
 
