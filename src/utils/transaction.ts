@@ -6,6 +6,7 @@ import { ToolFailure } from "./errors.js";
 import { sha256 } from "./hash.js";
 import type { Logger } from "./logger.js";
 import { contains, type ResolvedVault } from "./vault.js";
+import { WriteLock } from "./write-lock.js";
 
 export type PlannedChange =
   | {
@@ -46,14 +47,16 @@ export interface TransactionOptions {
   recoveryMaxBytes: number;
 }
 
-const queues = new Map<string, Promise<void>>();
-
 export class TransactionManager {
+  private readonly writeLock: WriteLock;
+
   constructor(
     private readonly vault: ResolvedVault,
     private readonly options: TransactionOptions,
     private readonly logger: Logger
-  ) {}
+  ) {
+    this.writeLock = new WriteLock(vault, logger);
+  }
 
   async initialize(): Promise<void> {
     await fs.mkdir(path.join(this.vault.stateRoot, "transactions"), {
@@ -62,26 +65,17 @@ export class TransactionManager {
     });
     await fs.mkdir(path.join(this.vault.stateRoot, "trash"), { recursive: true, mode: 0o700 });
     await fs.mkdir(path.join(this.vault.stateRoot, "locks"), { recursive: true, mode: 0o700 });
-    const release = await this.acquireLock();
-    try {
+    await this.writeLock.runExclusive(async () => {
       await this.recoverIncomplete();
       await this.prune();
-    } finally {
-      await release();
-    }
+      await this.writeLock.pruneArtifacts();
+    }, "startup");
   }
 
   async run(changes: readonly PlannedChange[]): Promise<string> {
     if (changes.length === 0)
       throw new ToolFailure("INVALID_ARGUMENT", "No changes were requested.");
-    return this.enqueue(async () => {
-      const release = await this.acquireLock();
-      try {
-        return await this.execute(changes);
-      } finally {
-        await release();
-      }
-    });
+    return this.writeLock.runExclusive(() => this.execute(changes), "transaction");
   }
 
   async listRecovery(): Promise<
@@ -504,79 +498,6 @@ export class TransactionManager {
         await fs.rm(entry.path, { recursive: true });
         total -= entry.size;
       }
-    }
-  }
-
-  private async acquireLock(): Promise<() => Promise<void>> {
-    const lock = path.join(this.vault.stateRoot, "locks", "write");
-    const started = Date.now();
-    while (true) {
-      try {
-        await fs.mkdir(lock);
-        await fs.writeFile(
-          path.join(lock, "owner.json"),
-          JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }),
-          { flag: "wx", mode: 0o600 }
-        );
-        const heartbeat = setInterval(() => {
-          void fs.utimes(lock, new Date(), new Date()).catch(() => undefined);
-        }, 5_000);
-        heartbeat.unref();
-        return async () => {
-          clearInterval(heartbeat);
-          await fs.rm(lock, { recursive: true, force: true });
-        };
-      } catch (error) {
-        if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
-        if (await this.clearVerifiedDeadLock(lock)) continue;
-        if (Date.now() - started >= 10_000) {
-          throw new ToolFailure(
-            "LOCK_TIMEOUT",
-            "Another process is modifying this vault. Try again shortly.",
-            {
-              retryable: true
-            }
-          );
-        }
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-    }
-  }
-
-  private async clearVerifiedDeadLock(lock: string): Promise<boolean> {
-    try {
-      const owner = JSON.parse(await fs.readFile(path.join(lock, "owner.json"), "utf8")) as {
-        pid?: unknown;
-      };
-      if (!Number.isSafeInteger(owner.pid) || Number(owner.pid) <= 0) return false;
-      try {
-        process.kill(Number(owner.pid), 0);
-        return false;
-      } catch (error) {
-        if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) return false;
-        await fs.rm(lock, { recursive: true, force: true });
-        this.logger.log("warn", "stale_lock_removed", { vault: this.vault.id });
-        return true;
-      }
-    } catch {
-      return false;
-    }
-  }
-
-  private async enqueue<T>(task: () => Promise<T>): Promise<T> {
-    const previous = queues.get(this.vault.root) ?? Promise.resolve();
-    let releaseQueue: () => void = () => undefined;
-    const current = new Promise<void>((resolve) => {
-      releaseQueue = resolve;
-    });
-    const tail = previous.then(() => current);
-    queues.set(this.vault.root, tail);
-    await previous;
-    try {
-      return await task();
-    } finally {
-      releaseQueue();
-      if (queues.get(this.vault.root) === tail) queues.delete(this.vault.root);
     }
   }
 

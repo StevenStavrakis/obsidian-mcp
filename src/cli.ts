@@ -18,6 +18,7 @@ import {
   UserFacingError,
   writeDiagnostic
 } from "./utils/diagnostics.js";
+import { ToolFailure } from "./utils/errors.js";
 import { Logger, type LogLevel } from "./utils/logger.js";
 import { VaultRegistry, type VaultDefinition } from "./utils/vault.js";
 
@@ -55,7 +56,39 @@ export async function runCli(args: string[] = process.argv.slice(2)): Promise<vo
     { recoveryDays: parsed.recoveryDays, recoveryMaxBytes: parsed.recoveryMaxBytes },
     logger
   );
-  await runtime.initialize();
+  try {
+    await runtime.initialize();
+  } catch (error) {
+    if (
+      error instanceof ToolFailure &&
+      typeof error.details?.lock_path === "string" &&
+      error.details.lock_path === ".obsidian-mcp/locks/write"
+    ) {
+      const remediation = error.details.remediation;
+      throw new UserFacingError(
+        {
+          code: error.code,
+          problem: "Obsidian MCP could not safely acquire the vault write lock.",
+          detected: error.message,
+          fix:
+            typeof remediation === "string"
+              ? [
+                  "Stop every obsidian-mcp process using this vault.",
+                  "Open the vault root in a terminal.",
+                  `Run: ${remediation}`
+                ]
+              : error.code === "LOCK_TIMEOUT"
+                ? "Wait for the reported holder to finish, or stop that process before retrying."
+                : "Confirm this process can create, rename, and remove entries in the vault's .obsidian-mcp/locks directory.",
+          verify: "Run the same vault configuration with 'obsidian-mcp doctor'.",
+          helpAnchor: "write-lock-recovery"
+        },
+        1,
+        { cause: error }
+      );
+    }
+    throw error;
+  }
 
   if (parsed.command === "doctor") {
     process.stdout.write(

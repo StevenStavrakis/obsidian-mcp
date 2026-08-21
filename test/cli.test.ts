@@ -30,6 +30,35 @@ test("startup failures never write non-MCP output to stdout", async () => {
   );
 });
 
+test("doctor reports a fail-closed lock with an exact recoverable rename command", async () => {
+  const root = await createVault("obsidian-mcp-cli-lock-");
+  const lock = path.join(root, ".obsidian-mcp", "locks", "write");
+  await fs.mkdir(lock, { recursive: true });
+  await fs.writeFile(path.join(lock, "owner.json"), "{truncated");
+
+  await assert.rejects(
+    () =>
+      run(process.execPath, [
+        "dist/main.js",
+        "doctor",
+        "--vault",
+        `test=${root}`,
+        "--log-level",
+        "error"
+      ]),
+    (error: unknown) => {
+      const failure = error as Error & { stdout?: string; stderr?: string };
+      assert.equal(failure.stdout, "");
+      assert.match(failure.stderr ?? "", /error \[FILESYSTEM_ERROR\]/u);
+      assert.match(failure.stderr ?? "", /\.obsidian-mcp[\\/]locks[\\/]write/u);
+      assert.match(failure.stderr ?? "", /mv --|Rename-Item/u);
+      assert.match(failure.stderr ?? "", /\.write\.manual-/u);
+      return true;
+    }
+  );
+  assert.equal(await fs.readFile(path.join(lock, "owner.json"), "utf8"), "{truncated");
+});
+
 test("CLI usage failures are actionable, typo-aware, and exit with status 2", async () => {
   await assert.rejects(
     () => run(process.execPath, ["dist/main.js", "server"]),

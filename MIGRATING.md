@@ -112,6 +112,14 @@ Common CLI codes include `CLI_UNKNOWN_COMMAND`, `CLI_UNKNOWN_OPTION`, `CLI_MISSI
 
 Do not post logs without reviewing them: diagnostics can contain configured filesystem paths. They never include note contents or credentials intentionally.
 
+### Write-lock recovery
+
+Version 2 publishes `.obsidian-mcp/locks/write` only after its `owner.json` is complete. Empty lock directories left by older releases are repaired automatically. A nonempty lock with missing, malformed, symlinked, or otherwise unexpected ownership data is deliberately not deleted because it cannot be distinguished safely from a live writer.
+
+When this fail-closed check blocks startup, stop every `obsidian-mcp` process using the vault and run the exact rename command printed by `serve` or `doctor` from the vault root. Renaming preserves the questionable directory for inspection. Run `doctor` again before restarting the MCP client. Do not recursively delete the lock directory while an MCP process may still be running.
+
+Lock ownership is intended for ordinary local filesystems. PID checks deliberately treat permission errors, recycled PIDs, container-namespace ambiguity, and other unverifiable identities as potentially live; they time out instead of deleting the lock automatically. Use the printed manual recovery procedure only after confirming that every process using the vault has stopped.
+
 ## Recovery changes
 
 Version 2 uses `.obsidian-mcp` for transaction journals and MCP trash. It does not automatically modify or delete legacy `.backup` or `.trash` directories. Those directories are excluded from v2 scans and can be archived or removed manually after verifying their contents.
