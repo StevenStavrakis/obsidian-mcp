@@ -646,8 +646,24 @@ async function atomicWrite(
     if (replace) {
       await fs.rename(temporary, target);
     } else {
-      await fs.link(temporary, target);
-      await fs.rm(temporary, { force: true }).catch(() => undefined);
+      try {
+        await fs.link(temporary, target);
+        await fs.rm(temporary, { force: true }).catch(() => undefined);
+      } catch (linkError: unknown) {
+        // Fallback for filesystems without hard link support (FAT32, exFAT).
+        // fs.link() fails on these with EPERM on Windows or ENOSYS/EXDEV on
+        // other platforms.  fs.rename() is safe here because the caller has
+        // already verified that the target does not exist (requireMissing).
+        if (
+          linkError instanceof Error &&
+          "code" in linkError &&
+          ["EPERM", "ENOSYS", "EXDEV"].includes(String((linkError as NodeJS.ErrnoException).code))
+        ) {
+          await fs.rename(temporary, target);
+        } else {
+          throw linkError;
+        }
+      }
     }
     await syncDirectory(path.dirname(target));
   } catch (error) {
