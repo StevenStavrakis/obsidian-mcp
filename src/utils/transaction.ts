@@ -657,7 +657,7 @@ async function atomicWrite(
         if (
           linkError instanceof Error &&
           "code" in linkError &&
-          ["EPERM", "ENOSYS", "EXDEV"].includes(String((linkError as NodeJS.ErrnoException).code))
+          ["EPERM", "ENOSYS", "EXDEV", "EISDIR"].includes(String((linkError as NodeJS.ErrnoException).code))
         ) {
           await fs.rename(temporary, target);
         } else {
@@ -677,14 +677,12 @@ async function syncDirectory(directory: string): Promise<void> {
   try {
     handle = await fs.open(directory, fsConstants.O_RDONLY);
     await handle.sync();
-  } catch (error) {
-    if (!(
-      error instanceof Error &&
-      "code" in error &&
-      ["EINVAL", "EISDIR", "EPERM", "EBADF"].includes(String(error.code))
-    )) {
-      throw error;
-    }
+  } catch {
+    // Directory fsync is a best-effort durability hint.
+    // Many Windows filesystems (FAT32, exFAT) and network drives
+    // reject it with various error codes (EPERM, EACCES, EINVAL, etc.).
+    // Swallow all errors since data integrity is already ensured by
+    // the atomic-write pattern (write-to-temp then rename/link).
   } finally {
     await handle?.close();
   }
@@ -698,7 +696,12 @@ async function writeDurable(target: string, data: Uint8Array, mode: number): Pro
   );
   try {
     await handle.writeFile(data);
-    await handle.sync();
+    try {
+      await handle.sync();
+    } catch {
+      // fsync may fail on FAT32, exFAT, or network-mounted filesystems.
+      // The write itself succeeded; sync is a best-effort durability hint.
+    }
   } finally {
     await handle.close();
   }
